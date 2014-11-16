@@ -1,0 +1,9 @@
+[Dolphin]
+GroupedSorting=true
+Timestamp=2014,11,16,21,14,39
+Version=3
+ViewMode=1
+VisibleRoles=Details_text,Details_size,Details_date,Details_imageSize,CustomizedDetails
+
+[Settings]
+HiddenFilesShown=true
