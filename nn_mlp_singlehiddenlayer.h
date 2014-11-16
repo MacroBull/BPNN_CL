@@ -15,6 +15,11 @@
 using namespace std;
 
 
+#define NN_FLAG_MULTIPLEHIDDENLAYER	0x01
+#define NN_FLAG_MOMENTUM			0x02
+#define NN_FLAG_THRESHOLD			0x04
+
+
 class NN_MLP_SingleHiddenLayer {
 	private:
 
@@ -23,6 +28,7 @@ class NN_MLP_SingleHiddenLayer {
 		uint _cInp;
 		uint _ci, _ch, _co;
 // 		DTYPE _lRate, _mRate;
+		int _flags;
 
 		cl_context _ctx;
 		cl_command_queue _queue;
@@ -30,6 +36,7 @@ class NN_MLP_SingleHiddenLayer {
 		vector<cl_device_id> _devices;
 		cl_kernel _ker_activate, _ker_backPropagation;
 		cl_int _ert;
+		uint _arg_idx;
 
 		DTYPE *_ai, *_ah, *_ao;
 		DTYPE *_wi, *_wo;
@@ -55,7 +62,7 @@ class NN_MLP_SingleHiddenLayer {
 		size_t *lSize = nullptr;
 
 		NN_MLP_SingleHiddenLayer(uint ci, uint ch, uint co, uint bias,
-			   DTYPE wRange = .3, DTYPE tRange = 0.);
+					DTYPE wRange = .3, DTYPE tRange = 0., int flags = 0);
 
 		~NN_MLP_SingleHiddenLayer();
 

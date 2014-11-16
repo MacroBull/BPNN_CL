@@ -20,8 +20,13 @@
 
 __kernel void activate(
 	__global const float *ai, __global float *ah, __global float *ao,
-	__global const float *wi, __global const float *wo,
-	__global const float *th, __global const float *to){
+	__global const float *wi, __global const float *wo
+
+	#ifdef USE_TH
+		,__global const float *th, __global const float *to
+	#endif
+
+	){
 	
 	uint jg = get_global_id(0); 
 	
@@ -30,7 +35,8 @@ __kernel void activate(
 	local float sum[CH]; // CH>CO
 	
 	if (jg < CH - BIAS) { // 0~CH-1
-		#ifdef USE_THRESHOLD
+
+		#ifdef USE_TH
 			sum[jg] = th[jg];
 		#else
 			sum[jg] = 0;
@@ -45,7 +51,8 @@ __kernel void activate(
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
 	if (jg < CO) { // 0~CO-1
-		#ifdef USE_THRESHOLD
+
+		#ifdef USE_TH
 			sum[jg] = to[jg];
 		#else
 			sum[jg] = 0;
@@ -64,10 +71,21 @@ __kernel void activate(
 __kernel void backPropagation(
 	__global const float *ai, __global const float *ah, __global const float *ao,
 	__global float *wi, __global float *wo,
-	__global float *pi, __global float *po,
-	__global float *th, __global float *to,
+
+	#ifdef USE_MR
+		__global float *pi, __global float *po,
+	#endif
+
+	#ifdef USE_TH
+		__global float *th, __global float *to,
+	#endif
 	__global const float *tar,
-	const float lr, const float mr
+	const float lr
+
+	#ifdef USE_MR
+		, const float mr
+	#endif
+
 	// 	,__global float *err
 	){
 	
@@ -83,7 +101,7 @@ __kernel void backPropagation(
 		// 		eo[jg] = DSIGMOIDY(ao[jg]) * (tar[jg] - ao[jg]) * lr; // sigmoid for output
 		// 		err[jg] = (tar[jg] - ao[jg]) * (tar[jg] - ao[jg]); // GPU MAC
 		eo[jg] = (tar[jg] - ao[jg]) * lr;
-		#ifdef USE_THRESHOLD
+		#ifdef USE_TH
 			to[jg] += eo[jg];
 		#endif
 	}
@@ -93,12 +111,17 @@ __kernel void backPropagation(
 	if (jg < CH) { // 0~CH-1
 		sum[jg] = 0;
 		for (k=0;k<CO;k++){
-			wo[jg*CO + k] += eo[k] * ah[jg] + po[jg*CO + k] * mr;
-			po[jg*CO + k] =  eo[k] * ah[jg];
+
+			#ifdef USE_MR
+				wo[jg*CO + k] += eo[k] * ah[jg] + po[jg*CO + k] * mr;
+				po[jg*CO + k] =  eo[k] * ah[jg];
+			#else
+				wo[jg*CO + k] += eo[k] * ah[jg];
+			#endif
 			sum[jg] += eo[k] * wo[jg*CO + k];
 		}
 		eh[jg] = DSIGMOIDY(ah[jg])*sum[jg] * lr;
-		#ifdef USE_THRESHOLD
+		#ifdef USE_TH
 			th[jg] += eh[jg];
 		#endif
 	}
@@ -107,8 +130,12 @@ __kernel void backPropagation(
 	
 	if (jg < CI) { // 0~CI-1
 		for (k=0;k<CH;k++) {
-			wi[jg*CH + k] += eh[k] * ai[jg] + pi[jg*CH + k] * mr;
-			pi[jg*CH + k] =  eh[k] * ai[jg];
+			#ifdef USE_MR
+				wi[jg*CH + k] += eh[k] * ai[jg] + pi[jg*CH + k] * mr;
+				pi[jg*CH + k] =  eh[k] * ai[jg];
+			#else
+				wi[jg*CH + k] += eh[k] * ai[jg];
+			#endif
 		}
 	}
 }
