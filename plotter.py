@@ -12,21 +12,24 @@ from pylab import *
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.gridspec as gridspec
 
-mType='sine'
-#mType='sin2'
+#mType='sine'
+mType='sin2'
 
 
 if mType == 'sine':
-	dim = (10, 1)
+	dim = (5, 1)
 	step = (1000, 1000)
 	sigm = '-DUSE_TANH'
+	lr = 0.01
 
 if mType == 'sin2':
-	dim = (30, 1)
-	step = (1000, 1000)
+	dim = (250, 1)
+	step = (100, 1000)
+	sigm = '-DUSE_TANH'
+#	lr = 0.004
 	lr = 0
 
-cmd = 'build/nncl {} {} {} {} {} {}'.format(mType, dim[0], dim[1], step[0], step[1], sigm)
+cmd = 'build/nncl {} {} {} {} {} {} {}'.format(mType, dim[0], dim[1], step[0], step[1], sigm, lr)
 print(cmd)
 _, n_out = os.popen2(cmd)
 #_, n_out = os.popen2('ls')
@@ -59,7 +62,7 @@ if mType == 'sine':
 
 	ion()
 	gs = gridspec.GridSpec(3, 1)
-	sp0 = subplot(gs[0:2, 0], title = r"$target=sin(x)(sigmoid={},\ dim={})$".format("tanh", repr(dim)))
+	sp0 = subplot(gs[0:2, 0], title = r"$target=sin(x)(sigmoid={},\ dim={})$".format("tanh" if "TANH" in sigm else "logistic", repr(dim)))
 	plot(xs, yo, 'o', label="Samples", alpha = 0.6)
 	lyt = plot(xt, yt, label = "Output")[0]
 	xlim(0,2*pi)
@@ -135,30 +138,33 @@ try:
 			yt = array([float(s) for s in data[5:]])
 		print '\t'.join([repr(t), repr(epochs), repr(lr), repr(es_cur)])
 
-		es.append(es_cur)
-		et.append(sum((ye-yt)**2) * 0.5)
-		cnt +=1
-	#	sp0.plot(xt, yt)
-		les.set_xdata(range(cnt))
-		let.set_xdata(range(cnt))
-		les.set_ydata(es)
-		let.set_ydata(et)
-		xlim(0,cnt)
+
+		if len(data)>5:
+			es.append(es_cur)
+			et.append(sum((ye-yt)**2) * 0.5)
+			cnt +=1
+		#	sp0.plot(xt, yt)
+			les.set_xdata(range(cnt))
+			let.set_xdata(range(cnt))
+			les.set_ydata(es)
+			let.set_ydata(et)
+			xlim(0,cnt)
 
 
-		if mType == 'sine':
-			lyt.set_ydata(yt)
+			if mType == 'sine':
+				lyt.set_ydata(yt)
 
-		if mType == 'sin2':
-			ax.clear()
-			ax.plot_surface(x,y,yt.reshape(21,-1), rstride=1, cstride=1, cmap=cm.coolwarm,
-						linewidth=0.5, antialiased=True)
+			if mType == 'sin2':
+				ax.clear()
+				ax.set_title(r"$\frac{sin(x_1)}{x_1}\cdot\frac{sin(x_2)}{x_2}$")
+				ax.plot_surface(x,y,yt.reshape(21,-1), rstride=1, cstride=1, cmap=cm.coolwarm,
+							linewidth=0.5, antialiased=True)
 
-		draw()
-		savefig("Figures/{}@{}_dim={}_err=({:.5f},{:.5f})_lr={:.4f}_mr={:.4f}.svg".format(mType,
-				int(epochs), repr(dim), es[-1], et[-1], lr, mr),
-				facecolor='w', edgecolor='w', trasparent=False)
-		pause(0.01)
+			draw()
+			savefig("Figures/{}@{}_dim={}_err=({:.5f},{:.5f})_lr={:.4f}_mr={:.4f}.eps".format(mType,
+					int(epochs), repr(dim), es[-1], et[-1], lr, mr),
+					facecolor='w', edgecolor='w', trasparent=False)
+			pause(0.01)
 
 		l = n_out.readline()
 
@@ -174,6 +180,6 @@ finally:
 	print(es[-1], et[-1])
 	print(l)
 
-	print(os.popen3('killall nncl')[2].read())
+#	print(os.popen3('killall nncl')[2].read())
 
 	show(block=True)

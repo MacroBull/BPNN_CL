@@ -26,8 +26,8 @@ void test_xor();
 
 void test_sine(){
 
-	NN_MLP_SingleHiddenLayer n(1, dim0, 1, 1, 0.3, 0.);
-	n.setupCL("nn_mlp_singlehiddenlayer.cl", extraDef, CL_DEVICE_TYPE_CPU);
+	NN_MLP_SingleHiddenLayer n(1, dim0, 1, 1, 10., 0., NN_FLAG_MOMENTUM);
+	n.setupCL("nn_mlp_singlehiddenlayer.cl", extraDef);
 // 	n.setupCL("nn_mlp_singlehiddenlayer.cl", "-DUSE_TANH -DUSE_THRESHOLD");
 
 	DTYPE inps[9];
@@ -46,12 +46,13 @@ void test_sine(){
 	n.dataset_i = inps;
 	n.dataset_o = outs;
 
-	uint countdown = 200000;
+	uint countdown = 100000;
 	DTYPE err = 1;
 	DTYPE lr, mr, err_l0 = 4, err_l1 = 16;
 	if (fixLR>0) lr = fixLR;else lr = 1./dim0;
 
-	while ((countdown-- >0) && (err > 1e-5)) {
+	while ((countdown>0) && (err > 1e-5)) {
+
 		err_l1 = err_l0;
 		err_l0 = err;
 
@@ -76,10 +77,12 @@ void test_sine(){
 		}
 		cout <<endl;
 
-		if (err_l0 >= err)
+		if (fixLR>0) lr = fixLR;
+		else if (err_l0 > err*0.98)
 			lr *=1.05;
-		else
-			lr *=0.85;
+		else if (lr>1e-3)
+			lr *=0.9;
+		countdown -= step;
 	}
 
 	cout << "--------------------" << endl;
@@ -94,10 +97,8 @@ void test_sine(){
 
 void test_sin2(){
 
-
-	NN_MLP_SingleHiddenLayer n(2, dim0, 1, 1, 0.3, 0.);
-	n.setupCL("nn_mlp_singlehiddenlayer.cl", "-DUSE_TANH",  CL_DEVICE_TYPE_GPU);
-
+	NN_MLP_SingleHiddenLayer n(2, dim0, 1, 1, .3, 0., NN_FLAG_MOMENTUM);
+	n.setupCL("nn_mlp_singlehiddenlayer.cl", extraDef,  CL_DEVICE_TYPE_CPU);
 
 	DTYPE inps[11*11*2];
 	DTYPE outs[11*11];
@@ -121,13 +122,12 @@ void test_sin2(){
 	n.dataset_i = inps;
 	n.dataset_o = outs;
 
+	uint countdown = 100000;
 	DTYPE err = 1;
 	DTYPE lr, mr, err_l0 = 2, err_l1 = 4;
-	lr = .01;
-	DTYPE lim, l0 = lr, l1 = lr;
-	while (err > 1e-3) {
-		l1 = l0;
-		l0 = lr;
+	if (fixLR>0) lr = fixLR;else lr = 1./dim0;
+
+	while ((countdown>0) && (err > 1e-3)) {
 		err_l1 = err_l0;
 		err_l0 = err;
 
@@ -152,10 +152,12 @@ void test_sin2(){
 		}
 		cout <<endl;
 
-		if (err_l0 > err)
+		if (fixLR>0) lr = fixLR;
+		else if (err_l0 > err*0.98)
 			lr *=1.05;
-		else
-			lr *=0.95;
+		else if (lr>1e-3)
+			lr *=0.9;
+		countdown -= step;
 	}
 
 	cout << "--------------------" << endl;

@@ -33,7 +33,7 @@ using namespace std;
 
 
 NN_MLP_SingleHiddenLayer::NN_MLP_SingleHiddenLayer(uint ci, uint ch, uint co, uint bias,
-			   DTYPE wRange, DTYPE tRange){
+			   DTYPE wRange, DTYPE tRange, int flags){
 
 	_epochs = 0;
 	_bias = bias;
@@ -41,6 +41,7 @@ NN_MLP_SingleHiddenLayer::NN_MLP_SingleHiddenLayer(uint ci, uint ch, uint co, ui
 	_ci = ci + bias;
 	_ch = ch + bias;
 	_co = co;
+	_flags = flags;
 
 	_ai = (DTYPE *)malloc(sizeof(DTYPE) * _ci);
 	_ah = (DTYPE *)malloc(sizeof(DTYPE) * _ch);
@@ -49,11 +50,15 @@ NN_MLP_SingleHiddenLayer::NN_MLP_SingleHiddenLayer(uint ci, uint ch, uint co, ui
 	_wi = (DTYPE *)malloc(sizeof(DTYPE) * _ci * _ch);
 	_wo = (DTYPE *)malloc(sizeof(DTYPE) * _ch * _co);
 
-	_pi = (DTYPE *)malloc(sizeof(DTYPE) * _ci * _ch);
-	_po = (DTYPE *)malloc(sizeof(DTYPE) * _ch * _co);
+	if (flags & NN_FLAG_MOMENTUM) {
+		_pi = (DTYPE *)malloc(sizeof(DTYPE) * _ci * _ch);
+		_po = (DTYPE *)malloc(sizeof(DTYPE) * _ch * _co);
+	}
 
-	_th = (DTYPE *)malloc(sizeof(DTYPE) * _ch);
-	_to = (DTYPE *)malloc(sizeof(DTYPE) * _co);
+	if (flags & NN_FLAG_THRESHOLD) {
+		_th = (DTYPE *)malloc(sizeof(DTYPE) * _ch);
+		_to = (DTYPE *)malloc(sizeof(DTYPE) * _co);
+	}
 
 // 	_errs = (DTYPE *)malloc(sizeof(DTYPE) * _co);
 
@@ -66,17 +71,20 @@ NN_MLP_SingleHiddenLayer::NN_MLP_SingleHiddenLayer(uint ci, uint ch, uint co, ui
 	for (uint i = 0;i<_ci;i++)
 		for (uint j=0;j<_ch;j++) {
 			_wi[i*_ch + j] = (random()/(DTYPE)(RAND_MAX/2)-1.) *wRange;
-			_pi[i*_ch + j] = 0;
+			if (flags & NN_FLAG_MOMENTUM) _pi[i*_ch + j] = 0;
 		}
 
 	for (uint i = 0;i<_ch;i++)
 		for (uint j=0;j<_co;j++) {
 			_wo[i*_co + j] = (random()/(DTYPE)(RAND_MAX/2)-1.) *wRange;
-			_po[i*_co + j] = 0;
+			if (flags & NN_FLAG_MOMENTUM) _po[i*_co + j] = 0;
 		}
 
-	for (uint i=0;i<_ch;i++) _th[i] = (random()/(DTYPE)(RAND_MAX/2)-1.) *tRange;
-	for (uint i=0;i<_co;i++) _to[i] = (random()/(DTYPE)(RAND_MAX/2)-1.) *tRange;
+	if (flags & NN_FLAG_THRESHOLD) {
+		for (uint i=0;i<_ch;i++) _th[i] = (random()/(DTYPE)(RAND_MAX/2)-1.) *tRange;
+		for (uint i=0;i<_co;i++) _to[i] = (random()/(DTYPE)(RAND_MAX/2)-1.) *tRange;
+	}
+
 }
 
 
@@ -178,6 +186,9 @@ cl_kernel NN_MLP_SingleHiddenLayer::loadKernel(string fName, string kerName, str
 	checkErr(__LINE__, "clCreateProgramWithSource", _ert);
 
 
+	if (_flags & NN_FLAG_MOMENTUM) flags += " -DUSE_MR";
+	if (_flags & NN_FLAG_THRESHOLD) flags += " -DUSE_TH";
+
 	char path[255];
 	getcwd(path, 255);
 
@@ -228,15 +239,19 @@ void NN_MLP_SingleHiddenLayer::bindBuffers(){
 	_wo_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
 						   sizeof(DTYPE) * _ch*_co, nullptr, &_ert);
 
-	_pi_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
+	if (_flags & NN_FLAG_MOMENTUM) {
+		_pi_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
 						   sizeof(DTYPE) * _ci*_ch, nullptr, &_ert);
-	_po_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
+		_po_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
 						   sizeof(DTYPE) * _ch*_co, nullptr, &_ert);
+	}
 
-	_th_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
-						   sizeof(DTYPE) * _ch , nullptr, &_ert);
-	_to_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
-						   sizeof(DTYPE) * _co, nullptr, &_ert);
+	if (_flags & NN_FLAG_THRESHOLD) {
+		_th_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
+							sizeof(DTYPE) * _ch , nullptr, &_ert);
+		_to_b = clCreateBuffer(_ctx, CL_MEM_READ_WRITE,
+							sizeof(DTYPE) * _co, nullptr, &_ert);
+	}
 
 	_tars_b = clCreateBuffer(_ctx, CL_MEM_READ_ONLY,
 							 sizeof(DTYPE) * _co, nullptr, &_ert);
@@ -245,27 +260,39 @@ void NN_MLP_SingleHiddenLayer::bindBuffers(){
 
 	checkErr(__LINE__, "clCreateBuffer", _ert);
 
+	_arg_idx = 0;
+	_ert =  clSetKernelArg(_ker_activate, _arg_idx, sizeof(cl_mem), &_ai_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_activate, _arg_idx, sizeof(cl_mem), &_ah_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_activate, _arg_idx, sizeof(cl_mem), &_ao_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_activate, _arg_idx, sizeof(cl_mem), &_wi_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_activate, _arg_idx, sizeof(cl_mem), &_wo_b);_arg_idx++;
 
-	_ert =  clSetKernelArg(_ker_activate, 0, sizeof(cl_mem), &_ai_b);
-	_ert |= clSetKernelArg(_ker_activate, 1, sizeof(cl_mem), &_ah_b);
-	_ert |= clSetKernelArg(_ker_activate, 2, sizeof(cl_mem), &_ao_b);
-	_ert |= clSetKernelArg(_ker_activate, 3, sizeof(cl_mem), &_wi_b);
-	_ert |= clSetKernelArg(_ker_activate, 4, sizeof(cl_mem), &_wo_b);
-	_ert |= clSetKernelArg(_ker_activate, 5, sizeof(cl_mem), &_th_b);
-	_ert |= clSetKernelArg(_ker_activate, 6, sizeof(cl_mem), &_to_b);
+	if (_flags & NN_FLAG_THRESHOLD) {
+		_ert |= clSetKernelArg(_ker_activate, _arg_idx, sizeof(cl_mem), &_th_b);_arg_idx++;
+		_ert |= clSetKernelArg(_ker_activate, _arg_idx, sizeof(cl_mem), &_to_b);_arg_idx++;
+	}
 
 	checkErr(__LINE__, "clSetKernelArg", _ert);
 
-	_ert =  clSetKernelArg(_ker_backPropagation, 0, sizeof(cl_mem), &_ai_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 1, sizeof(cl_mem), &_ah_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 2, sizeof(cl_mem), &_ao_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 3, sizeof(cl_mem), &_wi_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 4, sizeof(cl_mem), &_wo_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 5, sizeof(cl_mem), &_pi_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 6, sizeof(cl_mem), &_po_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 7, sizeof(cl_mem), &_th_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 8, sizeof(cl_mem), &_to_b);
-	_ert |= clSetKernelArg(_ker_backPropagation, 9, sizeof(cl_mem), &_tars_b);
+	_arg_idx = 0;
+	_ert =  clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_ai_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_ah_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_ao_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_wi_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_wo_b);_arg_idx++;
+
+
+	if (_flags & NN_FLAG_MOMENTUM) {
+		_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_pi_b);_arg_idx++;
+		_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_po_b);_arg_idx++;
+	}
+
+	if (_flags & NN_FLAG_THRESHOLD) {
+	_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_th_b);_arg_idx++;
+	_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_to_b);_arg_idx++;
+	}
+
+	_ert |= clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(cl_mem), &_tars_b);_arg_idx++;
 // 	_ert |= clSetKernelArg(_ker_backPropagation, 12, sizeof(cl_mem), &_errs_b);
 
 	checkErr(__LINE__, "clSetKernelArg", _ert);
@@ -279,14 +306,21 @@ void NN_MLP_SingleHiddenLayer::setBuffers(){
 								sizeof(DTYPE) * _ci*_ch, _wi, 0, nullptr, nullptr);
 	_ert |= clEnqueueWriteBuffer(_queue, _wo_b, CL_TRUE, 0,
 								 sizeof(DTYPE) * _ch*_co, _wo, 0, nullptr, nullptr);
-	_ert |= clEnqueueWriteBuffer(_queue, _pi_b, CL_TRUE, 0,
+
+	if (_flags & NN_FLAG_MOMENTUM) {
+		_ert |= clEnqueueWriteBuffer(_queue, _pi_b, CL_TRUE, 0,
 								sizeof(DTYPE) * _ci*_ch, _pi, 0, nullptr, nullptr);
-	_ert |= clEnqueueWriteBuffer(_queue, _po_b, CL_TRUE, 0,
+		_ert |= clEnqueueWriteBuffer(_queue, _po_b, CL_TRUE, 0,
 								 sizeof(DTYPE) * _ch*_co, _po, 0, nullptr, nullptr);
-	_ert = clEnqueueWriteBuffer(_queue, _th_b, CL_TRUE, 0,
+	}
+
+	if (_flags & NN_FLAG_THRESHOLD) {
+		_ert = clEnqueueWriteBuffer(_queue, _th_b, CL_TRUE, 0,
 								sizeof(DTYPE) * _ch, _th, 0, nullptr, nullptr);
-	_ert |= clEnqueueWriteBuffer(_queue, _to_b, CL_TRUE, 0,
+		_ert |= clEnqueueWriteBuffer(_queue, _to_b, CL_TRUE, 0,
 								 sizeof(DTYPE) * _co, _to, 0, nullptr, nullptr);
+	}
+
 	_ert |= clFinish(_queue);
 	checkErr(__LINE__, "setBuffers", _ert);
 }
@@ -337,10 +371,20 @@ NN_MLP_SingleHiddenLayer::~NN_MLP_SingleHiddenLayer(){
 	clReleaseMemObject(_ao_b);
 	clReleaseMemObject(_wi_b);
 	clReleaseMemObject(_wo_b);
-	clReleaseMemObject(_pi_b);
-	clReleaseMemObject(_po_b);
-	clReleaseMemObject(_th_b);
-	clReleaseMemObject(_to_b);
+
+	if (_flags & NN_FLAG_MOMENTUM) {
+		clReleaseMemObject(_pi_b);
+		clReleaseMemObject(_po_b);
+		free(_pi);free(_po);
+	}
+
+
+	if (_flags & NN_FLAG_THRESHOLD) {
+		clReleaseMemObject(_th_b);
+		clReleaseMemObject(_to_b);
+		free(_th);free(_to);
+	}
+
 	clReleaseMemObject(_tars_b);
 // 	clReleaseMemObject(_errs_b);
 	clReleaseKernel(_ker_activate);
@@ -398,63 +442,69 @@ void NN_MLP_SingleHiddenLayer::debugW(){
 	for (uint i=0;i<40;i++) cout<<'=';
 	cout << endl;
 
-// 	for (uint i=0;i<20;i++) cout<<'=';
-// 	cout << "pi";
-// 	for (uint i=0;i<20;i++) cout<<'=';
-// 	cout << endl;
-//
-// 	for (uint i = 0;i<_ci;i++) {
-// 		for (uint j=0;j<_ch;j++)
-// 			cout << _pi[i*_ch + j] << '\t';
-// 		cout << endl;
-// 	}
-//
-// 	for (uint i=0;i<20;i++) cout<<'=';
-// 	cout << "po";
-// 	for (uint i=0;i<20;i++) cout<<'=';
-// 	cout << endl;
-//
-// 	for (uint i = 0;i<_ch;i++){
-// 		for (uint j=0;j<_co;j++)
-// 			cout << _po[i*_co + j] << '\t';
-// 		cout << endl;
-// 	}
-//
-// 	for (uint i=0;i<40;i++) cout<<'=';
-// 	cout << endl;
+	if (_flags & NN_FLAG_MOMENTUM) {
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << "pi";
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << endl;
+
+		for (uint i = 0;i<_ci;i++) {
+			for (uint j=0;j<_ch;j++)
+				cout << _pi[i*_ch + j] << '\t';
+			cout << endl;
+		}
+
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << "po";
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << endl;
+
+		for (uint i = 0;i<_ch;i++){
+			for (uint j=0;j<_co;j++)
+				cout << _po[i*_co + j] << '\t';
+			cout << endl;
+		}
+
+		for (uint i=0;i<40;i++) cout<<'=';
+		cout << endl;
+	}
 
 }
 
 
 void NN_MLP_SingleHiddenLayer::debugT(){
 	//fetch _ah
-	_ert = clEnqueueReadBuffer(_queue, _th_b, CL_TRUE, 0,
-								sizeof(DTYPE) * _ch, _th, 0, nullptr, nullptr);
-	_ert |= clEnqueueReadBuffer(_queue, _to_b, CL_TRUE, 0,
-								sizeof(DTYPE) * _co, _to, 0, nullptr, nullptr);
-	_ert |= clFinish(_queue);
-	checkErr(__LINE__, "debugT", _ert);
 
-	for (uint i=0;i<20;i++) cout<<'=';
-	cout << "th";
-	for (uint i=0;i<20;i++) cout<<'=';
-	cout << endl;
+	if (_flags & NN_FLAG_THRESHOLD) {
+		_ert = clEnqueueReadBuffer(_queue, _th_b, CL_TRUE, 0,
+									sizeof(DTYPE) * _ch, _th, 0, nullptr, nullptr);
+		_ert |= clEnqueueReadBuffer(_queue, _to_b, CL_TRUE, 0,
+									sizeof(DTYPE) * _co, _to, 0, nullptr, nullptr);
+		_ert |= clFinish(_queue);
+		checkErr(__LINE__, "debugT", _ert);
 
-	for (uint j=0;j<_ch;j++)
-		cout << _th[j] << '\t';
-	cout << endl;
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << "th";
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << endl;
 
-	for (uint i=0;i<20;i++) cout<<'=';
-	cout << "to";
-	for (uint i=0;i<20;i++) cout<<'=';
-	cout << endl;
+		for (uint j=0;j<_ch;j++)
+			cout << _th[j] << '\t';
+		cout << endl;
 
-	for (uint j=0;j<_ch;j++)
-		cout << _to[j] << '\t';
-	cout << endl;
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << "to";
+		for (uint i=0;i<20;i++) cout<<'=';
+		cout << endl;
 
-	for (uint i=0;i<40;i++) cout<<'=';
-	cout << endl;
+		for (uint j=0;j<_ch;j++)
+			cout << _to[j] << '\t';
+		cout << endl;
+
+		for (uint i=0;i<40;i++) cout<<'=';
+		cout << endl;
+	}
+
 }
 
 
@@ -556,8 +606,8 @@ DTYPE NN_MLP_SingleHiddenLayer::backPropagation(DTYPE *tars){
 DTYPE NN_MLP_SingleHiddenLayer::train(uint epochs, DTYPE lRate, DTYPE mRate){
 	static float  err;
 // 	_lRate = lRate;	_mRate = mRate;
-	_ert = clSetKernelArg(_ker_backPropagation, 10, sizeof(DTYPE), &lRate);
-	_ert |= clSetKernelArg(_ker_backPropagation, 11, sizeof(DTYPE), &mRate);
+	_ert = clSetKernelArg(_ker_backPropagation, _arg_idx, sizeof(DTYPE), &lRate);
+	if (_flags & NN_FLAG_MOMENTUM) _ert |= clSetKernelArg(_ker_backPropagation, _arg_idx + 1, sizeof(DTYPE), &mRate);
 	checkErr(__LINE__, "backPropagation", _ert);
 	_epochs += epochs;
 	while (epochs>0) {
