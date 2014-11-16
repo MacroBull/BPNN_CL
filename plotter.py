@@ -12,21 +12,21 @@ from pylab import *
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.gridspec as gridspec
 
-#mType='sine'
-mType='sin2'
+mType='sine'
+#mType='sin2'
 
 
 if mType == 'sine':
 	dim = (10, 1)
 	step = (1000, 1000)
-	lr = 0.1
+	sigm = '-DUSE_TANH'
 
 if mType == 'sin2':
 	dim = (30, 1)
 	step = (1000, 1000)
 	lr = 0
 
-cmd = 'build/nncl {} {} {} {} {} {}'.format(mType, dim[0], dim[1], step[0], step[1], lr)
+cmd = 'build/nncl {} {} {} {} {} {}'.format(mType, dim[0], dim[1], step[0], step[1], sigm)
 print(cmd)
 _, n_out = os.popen2(cmd)
 #_, n_out = os.popen2('ls')

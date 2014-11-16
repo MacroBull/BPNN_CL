@@ -18,14 +18,16 @@ uint step = 1000, outstep = 5000;
 struct timeval t0, t1;
 
 DTYPE fixLR = 0;
+char defaultDef[] = "-DUSE_TANH";
+char *extraDef = defaultDef;
 
 void test_xor();
 
 
 void test_sine(){
 
-	NN_MLP_SingleHiddenLayer n(1, dim0, 1, 1, 0.03, 0.);
-	n.setupCL("nn_mlp_singlehiddenlayer.cl", "-DUSE_TANH", CL_DEVICE_TYPE_CPU);
+	NN_MLP_SingleHiddenLayer n(1, dim0, 1, 1, 0.3, 0.);
+	n.setupCL("nn_mlp_singlehiddenlayer.cl", extraDef, CL_DEVICE_TYPE_CPU);
 // 	n.setupCL("nn_mlp_singlehiddenlayer.cl", "-DUSE_TANH -DUSE_THRESHOLD");
 
 	DTYPE inps[9];
@@ -43,13 +45,15 @@ void test_sine(){
 	n.cDataset = 9;
 	n.dataset_i = inps;
 	n.dataset_o = outs;
+
+	uint countdown = 200000;
 	DTYPE err = 1;
 	DTYPE lr, mr, err_l0 = 4, err_l1 = 16;
-	if (fixLR>0) lr = fixLR;else lr = 0.5/ dim0;
-	while (err > 1e-5) {
+	if (fixLR>0) lr = fixLR;else lr = 1./dim0;
+
+	while ((countdown-- >0) && (err > 1e-5)) {
 		err_l1 = err_l0;
 		err_l0 = err;
-
 
 // 		mr = lr / 4.;
 		mr = 0;
@@ -72,13 +76,10 @@ void test_sine(){
 		}
 		cout <<endl;
 
-		if (err_l0 > err)
+		if (err_l0 >= err)
 			lr *=1.05;
 		else
-			lr *=0.95;
-// 		n.debugA();
-// // 		n.debugT();
-// 		n.debugW();
+			lr *=0.85;
 	}
 
 	cout << "--------------------" << endl;
@@ -172,13 +173,12 @@ void test_sin2(){
 
 
 int main(int argc, char **argv) {
-
-
+	/*
 	#ifdef USE_LOGISTIC
 	cout << "Using logistic" << endl;
 	#else
 	cout << "Using Tanh" << endl;
-	#endif
+	#endif*/
 
 	uint argidx = 0;
 
@@ -189,6 +189,7 @@ int main(int argc, char **argv) {
 	argidx ++; if (argc>argidx) dim1 = atoi(argv[argidx]);
 	argidx ++; if (argc>argidx) step = atoi(argv[argidx]);
 	argidx ++; if (argc>argidx) outstep = atoi(argv[argidx]);
+	argidx ++; if (argc>argidx) extraDef = argv[argidx];
 	argidx ++; if (argc>argidx) fixLR = atof(argv[argidx]);
 
 	cout << "DIM=" << dim0 << 'x' << dim1 <<endl;
@@ -208,7 +209,7 @@ void test_xor(){
 
 	NN_MLP_SingleHiddenLayer n(2, dim0, 1, 0, 0.9, 0.);
 
-	n.setupCL("nn_mlp_singlehiddenlayer.cl", "-DUSE_LOGISTIC", CL_DEVICE_TYPE_CPU);
+	n.setupCL("nn_mlp_singlehiddenlayer.cl", extraDef, CL_DEVICE_TYPE_CPU);
 
 	cout << "--------------------" << endl;
 
@@ -233,20 +234,20 @@ void test_xor(){
 	DTYPE err = 1;
 	DTYPE lr, mr, err_l0 = 1, err_l1 = 1;
 	mr = 0.;
-	lr = 0.12;
+	lr = (fixLR>0)?fixLR:0.2;
 	uint cnt = 4;
 	while ((cnt) &&(err > 1e-5)) {
-		err_l1 = err_l0;
-		err_l0 = err;
+
 		gettimeofday(&t0, nullptr);
 		err = n.train(step, lr, mr);
 		gettimeofday(&t1, nullptr);
+
 		cout << ( t1.tv_sec - t0.tv_sec ) +  (t1.tv_usec - t0.tv_usec) *1e-6
 		<< "\t " << n.getEpochs() << "\t|"
 		<< lr << "\t:" << err <<endl;
 
-		//  		n.debugW();
-		//  		n.debugA();
+// 	 		n.debugW();
+// 	 		n.debugA();
 		//  		n.debugT();
 		// 		cnt --;
 	}
